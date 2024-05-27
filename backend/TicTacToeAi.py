@@ -1,9 +1,14 @@
 import sys
+import copy
+import numpy as np
 
-fish_net_positions_taken = False
+bad_moves = []
 
 def get_move(board, player):
-    return best_move(board, player)
+    if is_empty(board):
+        return len(board) / 2, len(board) / 2
+
+    return best_move(board, player, False)[0]
 
 def is_empty(board):
     return board == [[' '] * len(board)] * len(board)
@@ -108,7 +113,6 @@ def score_of_col_one(board, col, y, x):
 
     return score_ready(scores)
 
-
 def possible_moves(board):
     taken = []
     # mảng directions lưu hướng đi (8 hướng)
@@ -128,31 +132,6 @@ def possible_moves(board):
                 move = march(board, y, x, dy, dx, length)
                 if move not in taken and move not in cord:
                     cord[move] = False
-    return cord
-
-def possible_moves_o(board):
-    global fish_net_positions_taken
-    o_taken = []
-    x_taken = []
-    cord = {}
-
-    for i in range(len(board)):
-        for j in range(len(board)):
-            if board[i][j] == 'o':
-                o_taken.append((i, j))
-            if board[i][j] == 'x':
-                x_taken.append((i, j))
-
-    for coord in o_taken:
-        y, x = coord
-        directions = [(1, -2), (-2, -1), (-1, 2), (2, 1),]
-        for dy, dx in directions:
-            move = (y + dy, x + dx)
-            if move[0] >= 0 and move[1] >= 0 and move[0] < len(board) and move[1] < len(board[0]):
-                if move not in o_taken and move not in x_taken and move not in cord:
-                    cord[move] = False
-                elif move in x_taken:
-                    fish_net_positions_taken = True
     return cord
 
 def is_o_first_moves(board):
@@ -181,31 +160,37 @@ def TF34score(score3, score4):
                     return True
     return False
 
-def stupid_score(board, player, opponent, y, x):
-    M = 1000
-    res, attack_score, defense_score = 0, 0, 0
+def calculate_score(board, player, opponent, y, x):
+    thread_score = 100000000
+    if player == 'x':
+        attack_score = calculate_individual_score(board, player, y, x, thread_score + 4000000)
+        defense_score = calculate_individual_score(board, opponent, y, x, thread_score - 4000000)
+    else:
+        attack_score = calculate_individual_score(board, player, y, x, thread_score - 4000000)
+        defense_score = calculate_individual_score(board, opponent, y, x, thread_score + 4000000)
+    return attack_score + defense_score
 
-    # Attack score
+def calculate_individual_score(board, player, y, x, thread_score):
     board[y][x] = player
+    multiply_rate = 12
     sum_player = score_of_col_one(board, player, y, x)
-    a = winning_situation(sum_player)
-    attack_score += a * M
+    num_threads = winning_situation(sum_player)
+    score = num_threads * thread_score
     sum_sumcol_values(sum_player)
-    attack_score += sum_player[-1] + sum_player[1] + 4 * sum_player[2] + 8 * sum_player[3] + 16 * sum_player[4]
-
-    # Defense score
-    board[y][x] = opponent
-    sum_opponent = score_of_col_one(board, opponent, y, x)
-    d = winning_situation(sum_opponent)
-    defense_score += d * (M - 100)
-    sum_sumcol_values(sum_opponent)
-    defense_score += sum_opponent[-1] + sum_opponent[1] + 4 * sum_opponent[2] + 8 * sum_opponent[3] + 16 * sum_opponent[4]
-
-    res = attack_score + defense_score
-
+    weights = np.array([multiply_rate, multiply_rate ** 2, multiply_rate ** 3, multiply_rate ** 4, multiply_rate ** 5])
+    keys = [-1, 1, 2, 3, 4]
+    values = np.array([sum_player[key] for key in keys])
+    score += np.dot(weights, values)
     board[y][x] = ' '
-    return res
+    return score
 
+def get_opponent(player):
+
+    if player == 'x':
+        opponent = 'o'
+    else:
+        opponent = 'x'
+    return opponent
 
 def winning_situation(sumcol):
     '''
@@ -216,43 +201,45 @@ def winning_situation(sumcol):
     '''
 
     if 1 in sumcol[5].values():
-        return 5
+        return 1000
     elif len(sumcol[4]) >= 2 or (len(sumcol[4]) >= 1 and max(sumcol[4].values()) >= 2):
-        return 4
+        return 70
     elif TF34score(sumcol[3], sumcol[4]):
-        return 4
+        return 70
     else:
         score3 = sorted(sumcol[3].values(), reverse=True)
         if len(score3) >= 2 and score3[0] >= score3[1] >= 2:
-            return 3
+            return 10
     return 0
 
-def best_move(board, player):
-    if player == 'x':
-        if is_empty(board):
-            return int(len(board) / 2), int(len(board[0]) / 2)
-        opponent = 'o'
-    else:
-        if is_o_first_moves(board):
-            return play_o_first_move(board)
-        opponent = 'x'
-
+def best_move(board, player, is_recursive):
+    opponent = get_opponent(player)
     predicted_move = (0, 0)
     max_score = -sys.maxsize
 
-    if not fish_net_positions_taken and player == 'o':
-        print("Using fish net positions")
-        moves = possible_moves_o(board)
-        if not moves:
-            moves = possible_moves(board)
-    else:
-        moves = possible_moves(board)
+    moves = possible_moves(board)
 
     for move in moves:
         y, x = move
-        temp_score = stupid_score(board, player, opponent, y, x)
+        temp_score = calculate_score(board, player, opponent, y, x)
         if temp_score > max_score:
-            max_score = temp_score
-            predicted_move = move
-    return predicted_move
+            if is_recursive:
+                new_board = copy.deepcopy(board)
+                new_board[y][x] = player
+                _, next_score = best_move(new_board, opponent, False)
+                if next_score < 500000:
+                    max_score = temp_score
+                    predicted_move = move
+            else:
+                max_score = temp_score
+                predicted_move = move
+            print(move, "SCORE:", max_score)
 
+    if player == 'x':
+        attack_score = calculate_individual_score(board, player, predicted_move[0], predicted_move[1], 1000000)
+        defense_score = calculate_individual_score(board, opponent, predicted_move[0], predicted_move[1], 1000000 - 50000)
+    else:
+        attack_score = calculate_individual_score(board, player, predicted_move[0], predicted_move[1], 1000000)
+        defense_score = calculate_individual_score(board, opponent, predicted_move[0], predicted_move[1], 1000000 + 50000)
+    print("Attack:", attack_score, "Defense:", defense_score)
+    return predicted_move, max_score
