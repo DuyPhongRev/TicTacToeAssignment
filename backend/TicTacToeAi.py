@@ -8,7 +8,7 @@ def get_move(board, player):
     if is_empty(board):
         return len(board) / 2, len(board) / 2
 
-    return best_move(board, player, False)[0]
+    return best_move(board, player)
 
 def is_empty(board):
     return board == [[' '] * len(board)] * len(board)
@@ -161,24 +161,19 @@ def TF34score(score3, score4):
     return False
 
 def calculate_score(board, player, opponent, y, x):
-    thread_score = 100000000
-    if player == 'x':
-        attack_score = calculate_individual_score(board, player, y, x, thread_score + 4000000)
-        defense_score = calculate_individual_score(board, opponent, y, x, thread_score - 4000000)
-    else:
-        attack_score = calculate_individual_score(board, player, y, x, thread_score - 4000000)
-        defense_score = calculate_individual_score(board, opponent, y, x, thread_score + 4000000)
+    thread_score = 1000
+    attack_score = calculate_individual_score(board, player, y, x, thread_score)
+    defense_score = calculate_individual_score(board, opponent, y, x, thread_score - 100)
     return attack_score + defense_score
 
 def calculate_individual_score(board, player, y, x, thread_score):
     board[y][x] = player
-    multiply_rate = 12
     sum_player = score_of_col_one(board, player, y, x)
     num_threads = winning_situation(sum_player)
     score = num_threads * thread_score
     sum_sumcol_values(sum_player)
-    weights = np.array([multiply_rate, multiply_rate ** 2, multiply_rate ** 3, multiply_rate ** 4, multiply_rate ** 5])
-    keys = [-1, 1, 2, 3, 4]
+    weights = np.array([1, 4, 10, 20])
+    keys = [1, 2, 3, 4]
     values = np.array([sum_player[key] for key in keys])
     score += np.dot(weights, values)
     board[y][x] = ' '
@@ -201,18 +196,18 @@ def winning_situation(sumcol):
     '''
 
     if 1 in sumcol[5].values():
-        return 1000
+        return 10
     elif len(sumcol[4]) >= 2 or (len(sumcol[4]) >= 1 and max(sumcol[4].values()) >= 2):
-        return 70
+        return 5
     elif TF34score(sumcol[3], sumcol[4]):
-        return 70
+        return 5
     else:
         score3 = sorted(sumcol[3].values(), reverse=True)
         if len(score3) >= 2 and score3[0] >= score3[1] >= 2:
-            return 10
+            return 3
     return 0
 
-def best_move(board, player, is_recursive):
+def best_move(board, player):
     opponent = get_opponent(player)
     predicted_move = (0, 0)
     max_score = -sys.maxsize
@@ -222,24 +217,12 @@ def best_move(board, player, is_recursive):
     for move in moves:
         y, x = move
         temp_score = calculate_score(board, player, opponent, y, x)
+        print(move, "SCORE:", temp_score)
         if temp_score > max_score:
-            if is_recursive:
-                new_board = copy.deepcopy(board)
-                new_board[y][x] = player
-                _, next_score = best_move(new_board, opponent, False)
-                if next_score < 500000:
-                    max_score = temp_score
-                    predicted_move = move
-            else:
-                max_score = temp_score
-                predicted_move = move
-            print(move, "SCORE:", max_score)
+            max_score = temp_score
+            predicted_move = move
 
-    if player == 'x':
-        attack_score = calculate_individual_score(board, player, predicted_move[0], predicted_move[1], 1000000)
-        defense_score = calculate_individual_score(board, opponent, predicted_move[0], predicted_move[1], 1000000 - 50000)
-    else:
-        attack_score = calculate_individual_score(board, player, predicted_move[0], predicted_move[1], 1000000)
-        defense_score = calculate_individual_score(board, opponent, predicted_move[0], predicted_move[1], 1000000 + 50000)
+    attack_score = calculate_individual_score(board, player, predicted_move[0], predicted_move[1], 1000)
+    defense_score = calculate_individual_score(board, opponent, predicted_move[0], predicted_move[1], 1000 - 100)
     print("Attack:", attack_score, "Defense:", defense_score)
-    return predicted_move, max_score
+    return predicted_move
